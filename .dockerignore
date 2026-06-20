@@ -1,0 +1,18 @@
+# Giu build context nho gon (KHONG gui CallHome 2GB, thesis, notebook... cho daemon)
+.git/
+**/__pycache__/
+*.pyc
+*.pyo
+CallHome/
+data/
+outputs/
+Đồ án/
+*.ipynb
+*.bak
+*.zip
+kaggle.json
+checkpoints/last_model.pt
+.sixth/
+webapp/space/
+losses/
+requirements.txt

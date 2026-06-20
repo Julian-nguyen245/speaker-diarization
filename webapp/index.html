@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EEND-EDA · Speaker Diarization</title>
+<style>
+  :root{
+    --bg:#0e1016; --card:#171a23; --card2:#1e222d; --line:#2a2f3d;
+    --txt:#e8eaf0; --mut:#98a1b3; --accent:#5b8cff; --gut:84px;
+    --s0:#5b8cff; --s1:#ff7a59; --s2:#34d399; --s3:#c084fc; --ov:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);line-height:1.5;
+       font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:30px 18px 90px}
+  h1{font-size:22px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
+  .sub{color:var(--mut);font-size:14px;margin-bottom:22px}
+
+  /* ---- drop zone (display:block fixes the misalignment) ---- */
+  .drop{display:block;width:100%;border:2px dashed var(--line);border-radius:14px;
+        padding:36px 20px;text-align:center;cursor:pointer;transition:.15s;background:var(--card)}
+  .drop:hover,.drop.drag{border-color:var(--accent);background:#1b2030}
+  .drop b{color:var(--accent)}
+  .hint{color:var(--mut);font-size:13px;margin-top:6px}
+  .samples{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .smlbl{color:var(--mut);font-size:13px}
+  .chip{background:var(--card2);border:1px solid var(--line);color:var(--txt);
+        border-radius:20px;padding:5px 12px;font-size:13px;cursor:pointer}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+        padding:18px;margin-top:18px}
+  .card h3{margin:0 0 6px;font-size:16px;word-break:break-all}
+  .meta{color:var(--mut);font-size:13px;margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .badge{background:var(--card2);border:1px solid var(--line);border-radius:20px;padding:2px 11px;font-size:12px}
+  audio{width:100%;margin:6px 0 14px;height:36px}
+
+  /* ---- controls ---- */
+  .ctrls{display:flex;gap:18px;flex-wrap:wrap;background:var(--card2);border:1px solid var(--line);
+         border-radius:10px;padding:12px 14px;margin-bottom:14px}
+  .ctrl{display:flex;flex-direction:column;font-size:12px;color:var(--mut);min-width:150px;flex:1}
+  .ctrl label{margin-bottom:5px}
+  .ctrl b{color:var(--txt)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+
+  /* ---- timeline ---- */
+  .tl{position:relative;user-select:none}
+  .trk{display:flex;align-items:center;height:24px;margin:4px 0}
+  .nm{width:var(--gut);flex:none;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:8px}
+  .bar{position:relative;flex:1;height:20px;background:#0c0e15;border-radius:4px;overflow:hidden}
+  .bar.tall{height:46px}
+  .ruler .bar{background:none;height:16px}
+  .tick{position:absolute;top:0;transform:translateX(-50%);font-size:11px;color:var(--mut)}
+  .tick:first-child{transform:none}
+  .tick:last-child{transform:translateX(-100%)}
+  .seg{position:absolute;top:0;height:100%;border-radius:3px;opacity:.92}
+  canvas.wave{display:block;width:100%;height:46px}
+  .playhead{position:absolute;top:18px;bottom:6px;width:2px;background:#fff;opacity:.85;
+            pointer-events:none;left:var(--gut);box-shadow:0 0 6px #fff8}
+
+  table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600}
+  td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px;vertical-align:-1px}
+  .btn{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;margin:14px 8px 0 0}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
+  .spin{display:inline-block;width:15px;height:15px;border:2px solid #fff5;border-top-color:#fff;border-radius:50%;animation:r .7s linear infinite;vertical-align:-2px;margin-right:7px}
+  @keyframes r{to{transform:rotate(360deg)}}
+  .err{color:#ff6b6b;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎙️ EEND-EDA — Speaker Diarization</h1>
+  <div class="sub">Tải lên file âm thanh để tách giọng và xem thời gian nói của từng người. Có thể chỉnh ngưỡng và độ mượt trực tiếp.</div>
+
+  <label class="drop" id="drop">
+    <input type="file" id="file" accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*" multiple hidden>
+    <div style="font-size:15px">Kéo thả hoặc <b>bấm để chọn</b> file</div>
+    <div class="hint">.wav / .mp3 / .m4a / .flac · chọn được nhiều file · hội thoại 2 người cho kết quả tốt nhất</div>
+  </label>
+
+  <div class="samples" id="samples"></div>
+  <div id="results"></div>
+</div>
+
+<script>
+const COLORS=["var(--s0)","var(--s1)","var(--s2)","var(--s3)"];
+const drop=document.getElementById("drop"), fileInput=document.getElementById("file"), results=document.getElementById("results");
+const fmt=t=>{const m=Math.floor(t/60),s=t%60;return `${m}:${s.toFixed(1).padStart(4,"0")}`;};
+const debounce=(fn,ms=120)=>{let h;return(...a)=>{clearTimeout(h);h=setTimeout(()=>fn(...a),ms);};};
+
+["dragover","dragenter"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("drag");}));
+["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("drag");}));
+drop.addEventListener("drop",ev=>handleFiles(ev.dataTransfer.files));
+fileInput.addEventListener("change",ev=>{handleFiles(ev.target.files);ev.target.value="";});
+
+function handleFiles(files){ [...files].forEach(processFile); }   // xu ly song song nhieu file
+
+// ---- nut file mau co san ----
+(async()=>{
+  try{
+    const list=await (await fetch("/samples")).json();
+    if(!Array.isArray(list)||!list.length) return;
+    const box=document.getElementById("samples");
+    box.innerHTML='<span class="smlbl">Hoặc thử file mẫu:</span>'+
+      list.map(n=>`<button class="chip" data-n="${n}">▶ ${n}</button>`).join("");
+    box.querySelectorAll(".chip").forEach(b=>b.addEventListener("click",()=>loadSample(b.dataset.n)));
+  }catch(e){}
+})();
+async function loadSample(name){
+  try{
+    const r=await fetch("/samples/"+encodeURIComponent(name));
+    const blob=await r.blob();
+    processFile(new File([blob],name,{type:"audio/wav"}));
+  }catch(e){}
+}
+
+async function processFile(file){
+  const card=document.createElement("div"); card.className="card";
+  card.innerHTML=`<h3>${file.name}</h3><div class="meta"><span class="spin"></span>Đang suy luận…</div>`;
+  results.prepend(card);
+  try{
+    const fd=new FormData(); fd.append("file",file);
+    const r=await fetch("/infer",{method:"POST",body:fd});
+    const data=await r.json();
+    if(!r.ok||data.error) throw new Error(data.error||"Lỗi suy luận");
+    buildCard(card,file,data);
+  }catch(e){ card.querySelector(".meta").innerHTML=`<span class="err">⚠ ${e.message}</span>`; }
+}
+
+/* ---------- xu ly phia client: nguong + lam muot + cat doan ---------- */
+function smooth(bin,win){
+  if(win<=1) return bin;
+  const half=win>>1, out=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++){
+    let s=0,c=0, lo=Math.max(0,i-half), hi=Math.min(bin.length-1,i+half);
+    for(let j=lo;j<=hi;j++){s+=bin[j];c++;}
+    out[i]=(s*2>=c)?1:0;
+  }
+  return out;
+}
+function toSegs(bin,shift,mergeGap,minDur){
+  let segs=[],active=false,start=0;
+  for(let i=0;i<bin.length;i++){
+    if(bin[i]&&!active){start=i;active=true;}
+    else if(!bin[i]&&active){segs.push([start*shift,i*shift]);active=false;}
+  }
+  if(active) segs.push([start*shift,bin.length*shift]);
+  const m=[];
+  for(const s of segs){ if(m.length&&s[0]-m[m.length-1][1]<=mergeGap) m[m.length-1][1]=s[1]; else m.push([...s]); }
+  return m.filter(s=>s[1]-s[0]>=minDur);
+}
+
+function buildCard(card,file,data){
+  const dur=data.duration, shift=data.frame_shift, url=URL.createObjectURL(file);
+  const nF=data.probs[0].length;
+
+  const ruler=Array.from({length:7},(_,i)=>`<span class="tick" style="left:${i/6*100}%">${fmt(dur*i/6)}</span>`).join("");
+
+  card.innerHTML=`
+    <h3>${file.name}</h3>
+    <div class="meta">
+      <span class="badge">⏱ ${fmt(dur)}</span>
+      <span class="badge">👤 ~${data.est_speakers} người nói</span>
+      <span class="badge">🎚 độ phân giải ${(shift*1000).toFixed(0)} ms</span>
+    </div>
+    <audio controls src="${url}"></audio>
+    <div class="ctrls">
+      <div class="ctrl"><label>Ngưỡng phát hiện: <b class="v-thr">0.50</b></label><input type="range" class="thr" min="0.30" max="0.70" step="0.01" value="0.50"></div>
+      <div class="ctrl"><label>Làm mượt: <b class="v-sm">110</b> ms</label><input type="range" class="sm" min="0" max="400" step="10" value="110"></div>
+      <div class="ctrl"><label>Đoạn tối thiểu: <b class="v-md">200</b> ms</label><input type="range" class="md" min="0" max="1000" step="50" value="200"></div>
+    </div>
+    <div class="tl">
+      <div class="trk ruler"><span class="nm"></span><div class="bar">${ruler}</div></div>
+      <div class="trk"><span class="nm">Sóng âm</span><div class="bar tall"><canvas class="wave"></canvas></div></div>
+      <div class="rows"></div>
+      <div class="playhead"></div>
+    </div>
+    <table><thead><tr><th>Người nói</th><th class="r">Tổng</th><th class="r">Tỉ lệ</th><th class="r">Số đoạn</th></tr></thead><tbody class="tb"></tbody></table>
+    <button class="btn dl">⬇ Tải RTTM</button>
+    <button class="btn ghost rm">Xóa</button>
+  `;
+
+  const tl=card.querySelector(".tl"), audio=card.querySelector("audio");
+  const playhead=card.querySelector(".playhead");
+  let lastSegs=[];
+
+  function recompute(){
+    const thr=+card.querySelector(".thr").value;
+    const smMs=+card.querySelector(".sm").value;
+    const mdMs=+card.querySelector(".md").value;
+    card.querySelector(".v-thr").textContent=thr.toFixed(2);
+    card.querySelector(".v-sm").textContent=smMs;
+    card.querySelector(".v-md").textContent=mdMs;
+    const win=Math.max(1,Math.round(smMs/1000/shift));
+    const minDur=mdMs/1000, mergeGap=0.30;
+
+    const bins=data.probs.map(p=>{ const b=new Uint8Array(nF); for(let i=0;i<nF;i++) b[i]=p[i]>thr?1:0; return smooth(b,win); });
+    const spk=[];
+    bins.forEach((b,ch)=>{ const segs=toSegs(b,shift,mergeGap,minDur); const total=segs.reduce((s,[a,c])=>s+c-a,0);
+      if(total>0) spk.push({ch,segs,total,exist:data.exist[ch]}); });
+    spk.sort((a,b)=>b.total-a.total);
+    spk.forEach((s,i)=>{s.label=`Speaker ${i+1}`;s.color=COLORS[i%COLORS.length];});
+
+    // overlap: >=2 kenh hoat dong cung luc
+    const ov=new Uint8Array(nF);
+    for(let i=0;i<nF;i++){let c=0;for(const b of bins)c+=b[i];ov[i]=c>=2?1:0;}
+    const ovSegs=toSegs(ov,shift,0.20,0.20);
+
+    const rowsHtml=spk.map(s=>{
+      const segs=s.segs.map(([a,b])=>`<div class="seg" title="${fmt(a)} → ${fmt(b)}" style="left:${a/dur*100}%;width:${Math.max((b-a)/dur*100,0.25)}%;background:${s.color}"></div>`).join("");
+      return `<div class="trk"><span class="nm" style="color:${s.color}">${s.label}</span><div class="bar">${segs}</div></div>`;
+    }).join("") + (ovSegs.length?`<div class="trk"><span class="nm" style="color:var(--ov)">Chồng lấp</span><div class="bar">${
+      ovSegs.map(([a,b])=>`<div class="seg" title="${fmt(a)} → ${fmt(b)}" style="left:${a/dur*100}%;width:${Math.max((b-a)/dur*100,0.25)}%;background:var(--ov)"></div>`).join("")}</div></div>`:"");
+    card.querySelector(".rows").innerHTML=rowsHtml;
+
+    card.querySelector(".tb").innerHTML=spk.map(s=>`<tr><td><span class="dot" style="background:${s.color}"></span>${s.label}</td>
+      <td class="r">${s.total.toFixed(1)} s</td><td class="r">${(s.total/dur*100).toFixed(0)}%</td><td class="r">${s.segs.length}</td></tr>`).join("")
+      + (ovSegs.length?`<tr><td><span class="dot" style="background:var(--ov)"></span>Chồng lấp</td><td class="r">${ovSegs.reduce((x,[a,b])=>x+b-a,0).toFixed(1)} s</td><td class="r">—</td><td class="r">${ovSegs.length}</td></tr>`:"");
+
+    lastSegs=spk;
+  }
+
+  // ---- waveform (Web Audio, tu chua, khong can mang) ----
+  const cv=card.querySelector("canvas.wave");
+  (async()=>{
+    try{
+      const ac=new (window.AudioContext||window.webkitAudioContext)();
+      const buf=await ac.decodeAudioData(await file.arrayBuffer());
+      const ch=buf.getChannelData(0);
+      const W=cv.clientWidth||800, H=46; cv.width=W; cv.height=H;
+      const g=cv.getContext("2d"); g.fillStyle="#39456b"; const step=Math.max(1,Math.floor(ch.length/W));
+      for(let x=0;x<W;x++){let mn=1,mx=-1;for(let j=0;j<step;j++){const v=ch[x*step+j]||0;if(v<mn)mn=v;if(v>mx)mx=v;}
+        const y1=(1-mx)/2*H,y2=(1-mn)/2*H; g.fillRect(x,y1,1,Math.max(1,y2-y1));}
+      ac.close();
+    }catch(e){ /* trinh duyet khong giai ma duoc -> bo qua waveform */ }
+  })();
+
+  // ---- click-to-seek + playhead ----
+  const gut=parseInt(getComputedStyle(document.documentElement).getPropertyValue("--gut"));
+  tl.addEventListener("click",e=>{
+    if(e.target.closest(".ctrls")) return;
+    const rect=tl.getBoundingClientRect(); const x=e.clientX-rect.left-gut;
+    const frac=Math.min(1,Math.max(0,x/(rect.width-gut)));
+    audio.currentTime=frac*dur;
+  });
+  function updHead(){ const frac=dur?audio.currentTime/dur:0;
+    playhead.style.left=`calc(${gut}px + ${frac}*(100% - ${gut}px))`;
+    if(!audio.paused) requestAnimationFrame(updHead); }
+  audio.addEventListener("timeupdate",updHead);
+  audio.addEventListener("play",updHead);
+
+  // ---- sliders ----
+  const rec=debounce(recompute,90);
+  card.querySelectorAll("input[type=range]").forEach(s=>s.addEventListener("input",rec));
+  recompute();
+
+  // ---- buttons ----
+  card.querySelector(".rm").onclick=()=>card.remove();
+  card.querySelector(".dl").onclick=()=>{
+    const base=file.name.replace(/\.[^.]+$/,"");
+    let out="";
+    lastSegs.forEach(s=>s.segs.forEach(([a,b])=>{
+      out+=`SPEAKER ${base} 1 ${a.toFixed(3)} ${(b-a).toFixed(3)} <NA> <NA> ${s.label.replace(/\s/g,"_")} <NA> <NA>\n`;}));
+    const blob=new Blob([out],{type:"text/plain"}); const link=document.createElement("a");
+    link.href=URL.createObjectURL(blob); link.download=base+".rttm"; link.click();
+  };
+}
+</script>
+</body>
+</html>
